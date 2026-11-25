@@ -5,9 +5,11 @@ An experimental **PlayStation Vita** runner for *The Legend of Zelda: The Minish
 code of a copy of the game **you already own** into native code that runs on the Vita, at
 full screen and with Vita controls.
 
-> **This project contains no game data.** It does not include, and will never include,
-> a ROM, a BIOS, artwork, audio, or any other copyrighted game content. You must supply
-> your own legally obtained files, dumped from hardware you own.
+> **This project contains no game ROM, no BIOS, no audio and no game code.** You must supply
+> your own legally obtained ROM and BIOS, dumped from hardware you own. The only third-party
+> material in the repository is the LiveArea icon and banner artwork in `runner/vita/sce_sys/`
+> (owned by its original rights holders and not covered by this project's license).
+> Neutral placeholder art is in `runner/vita/neutral/sce_sys/` if you prefer to use that.
 
 This is an unofficial, fan-made, non-commercial project. It is not affiliated with,
 endorsed by, or sponsored by Nintendo, Sony, or any other company. *The Legend of Zelda*,
@@ -68,8 +70,8 @@ This repository only contains the tools and the Vita platform layer.
    ```
 
    The first build compiles roughly 270 MB of generated code and takes a while.
-   To use your own LiveArea artwork, put it in `runner/vita/local/sce_sys/` (git-ignored);
-   otherwise neutral placeholder art is used. For a **personal** package you may also
+   To use different LiveArea artwork, put it in `runner/vita/local/sce_sys/` (git-ignored);
+   the neutral set is in `runner/vita/neutral/sce_sys/`. For a **personal** package you may also
    pass `-DEZLO_VITA_BIOS=/path/to/gba_bios.bin` to bundle your BIOS into your own
    `.vpk`. Never share a package built that way.
 

@@ -32,9 +32,16 @@ Vendored submodules (kept in `gbarecomp/external/`) retain their own licenses.
 
 All of these modifications are released under the same PolyForm Noncommercial license.
 
+## Artwork
+
+The LiveArea icon, banner and start-up images in `runner/vita/sce_sys/` are third-party
+artwork belonging to their original rights holders. They are included only to identify the
+app on the Vita, are not covered by this project's license, and will be removed on request.
+Neutral original placeholders are in `runner/vita/neutral/sce_sys/`.
+
 ## Not included
 
-No game ROM, BIOS image, game artwork, audio or other game content is included, and none
+No game ROM, BIOS image, audio or other game content is included, and none
 of the generated code derived from them. The BIOS-derived files
 `gbarecomp/src/runtime/generated_bios/bios_recompiled.*` and `bios_symbol_map.cpp` are
 git-ignored.
