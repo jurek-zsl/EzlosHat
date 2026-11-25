@@ -118,6 +118,9 @@ void GbaBus::deserialize(gbarecomp::debug::SnapshotReader& r) {
 
 GbaBus* GbaBus::wait_table_owner() { return g_wait_table_owner; }
 
+extern "C" unsigned char g_bus_write_observed = 0;
+void GbaBus::note_write_observer() { g_bus_write_observed = write_observer_ ? 1u : 0u; }
+
 void GbaBus::bind_wait_table(RuntimeWaitTable* live) {
     if (live) {
         if (g_wait_table_owner && g_wait_table_owner != this)

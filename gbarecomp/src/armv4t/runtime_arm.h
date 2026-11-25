@@ -545,6 +545,109 @@ static inline void runtime_tick_inline(uint32_t cycles) {
 }
 #define runtime_should_yield() runtime_should_yield_inline()
 #define runtime_tick(cycles) runtime_tick_inline(cycles)
+
+// Wait states: g_runtime_waits IS the active bus's live table (bind_wait_table),
+// so this is GbaBus::access_cycles without the call. RAM is null only
+// without an active bus, where the out-of-line version returns 1.
+extern unsigned char* g_runtime_ewram;
+extern unsigned char* g_runtime_iwram;
+extern unsigned char g_bus_write_observed;
+static inline uint32_t runtime_mem_cycles_inline(uint32_t addr, uint32_t width, uint32_t sequential) {
+    if (!g_runtime_ewram) return 1u;
+    const uint32_t region = addr >> 24;
+    if (region > 0xFu) return 1u;
+    if (region == 0xEu || region == 0xFu) return 1u + g_runtime_waits.n16[region];
+    if (width == 4u) return 1u + (sequential ? g_runtime_waits.s32[region] : g_runtime_waits.n32[region]);
+    return 1u + (sequential ? g_runtime_waits.s16[region] : g_runtime_waits.n16[region]);
+}
+#define runtime_mem_cycles(a, w, s) runtime_mem_cycles_inline(a, w, s)
+
+// Ordinary EWRAM/IWRAM reads and writes, exactly GbaBus::native_ram_read /
+// native_ram_write. Anything else (other regions, a wrap at the end of RAM,
+// an active read override or write observer) goes through the full path.
+static inline unsigned char* runtime_ram_ptr(uint32_t addr, uint32_t width) {
+    const uint32_t region = addr >> 24;
+    if ((region != 2u && region != 3u) || !g_runtime_ewram) return 0;
+    const uint32_t mask = region == 2u ? 0x3ffffu : 0x7fffu;
+    const uint32_t offset = addr & mask;
+    if (offset > mask + 1u - width) return 0;
+    return (region == 2u ? g_runtime_ewram : g_runtime_iwram) + offset;
+}
+static inline uint32_t bus_read_u32_inline(uint32_t addr) {
+    const unsigned char* p = runtime_ram_ptr(addr, 4u);
+    if (!p || g_runtime_bus_read_override) return bus_read_u32(addr);
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+static inline uint16_t bus_read_u16_inline(uint32_t addr) {
+    const unsigned char* p = runtime_ram_ptr(addr, 2u);
+    if (!p || g_runtime_bus_read_override) return bus_read_u16(addr);
+    return (uint16_t)(p[0] | (p[1] << 8));
+}
+static inline uint8_t bus_read_u8_inline(uint32_t addr) {
+    const unsigned char* p = runtime_ram_ptr(addr, 1u);
+    if (!p || g_runtime_bus_read_override) return bus_read_u8(addr);
+    return p[0];
+}
+static inline void bus_write_u32_inline(uint32_t addr, uint32_t v) {
+    unsigned char* p = runtime_ram_ptr(addr, 4u);
+    if (!p || g_bus_write_observed) { bus_write_u32(addr, v); return; }
+    p[0] = (unsigned char)v; p[1] = (unsigned char)(v >> 8);
+    p[2] = (unsigned char)(v >> 16); p[3] = (unsigned char)(v >> 24);
+    ++g_idle_disturb_epoch;
+}
+static inline void bus_write_u16_inline(uint32_t addr, uint16_t v) {
+    unsigned char* p = runtime_ram_ptr(addr, 2u);
+    if (!p || g_bus_write_observed) { bus_write_u16(addr, v); return; }
+    p[0] = (unsigned char)v; p[1] = (unsigned char)(v >> 8);
+    ++g_idle_disturb_epoch;
+}
+static inline void bus_write_u8_inline(uint32_t addr, uint8_t v) {
+    unsigned char* p = runtime_ram_ptr(addr, 1u);
+    if (!p || g_bus_write_observed) { bus_write_u8(addr, v); return; }
+    p[0] = v;
+    ++g_idle_disturb_epoch;
+}
+#define bus_read_u32(a) bus_read_u32_inline(a)
+#define bus_read_u16(a) bus_read_u16_inline(a)
+#define bus_read_u8(a) bus_read_u8_inline(a)
+#define bus_write_u32(a, v) bus_write_u32_inline(a, v)
+#define bus_write_u16(a, v) bus_write_u16_inline(a, v)
+#define bus_write_u8(a, v) bus_write_u8_inline(a, v)
+
+// Flag updates, identical to runtime_arm.cpp.
+static inline void arm_set_nz_inline(uint32_t r) {
+    uint32_t c = g_cpu.cpsr & ~(CPSR_N_BIT | CPSR_Z_BIT);
+    if (r & 0x80000000u) c |= CPSR_N_BIT;
+    if (r == 0) c |= CPSR_Z_BIT;
+    g_cpu.cpsr = c;
+}
+static inline void arm_set_nzc_logic_inline(uint32_t r, uint32_t shifter_carry) {
+    uint32_t c = g_cpu.cpsr & ~(CPSR_N_BIT | CPSR_Z_BIT | CPSR_C_BIT);
+    if (r & 0x80000000u) c |= CPSR_N_BIT;
+    if (r == 0) c |= CPSR_Z_BIT;
+    if (shifter_carry) c |= CPSR_C_BIT;
+    g_cpu.cpsr = c;
+}
+static inline void arm_set_nzcv_add_inline(uint32_t a, uint32_t b, uint32_t r) {
+    uint32_t c = g_cpu.cpsr & ~(CPSR_N_BIT | CPSR_Z_BIT | CPSR_C_BIT | CPSR_V_BIT);
+    if (r & 0x80000000u) c |= CPSR_N_BIT;
+    if (r == 0) c |= CPSR_Z_BIT;
+    if (r < a) c |= CPSR_C_BIT;
+    if ((~(a ^ b) & (a ^ r)) & 0x80000000u) c |= CPSR_V_BIT;
+    g_cpu.cpsr = c;
+}
+static inline void arm_set_nzcv_sub_inline(uint32_t a, uint32_t b, uint32_t r) {
+    uint32_t c = g_cpu.cpsr & ~(CPSR_N_BIT | CPSR_Z_BIT | CPSR_C_BIT | CPSR_V_BIT);
+    if (r & 0x80000000u) c |= CPSR_N_BIT;
+    if (r == 0) c |= CPSR_Z_BIT;
+    if (a >= b) c |= CPSR_C_BIT;
+    if (((a ^ b) & (a ^ r)) & 0x80000000u) c |= CPSR_V_BIT;
+    g_cpu.cpsr = c;
+}
+#define arm_set_nz(r) arm_set_nz_inline(r)
+#define arm_set_nzc_logic(r, c) arm_set_nzc_logic_inline(r, c)
+#define arm_set_nzcv_add(a, b, r) arm_set_nzcv_add_inline(a, b, r)
+#define arm_set_nzcv_sub(a, b, r) arm_set_nzcv_sub_inline(a, b, r)
 #endif
 
 // P6 sljit differential gate — shadow-tick mode. While g_runtime_shadow_tick is

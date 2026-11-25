@@ -322,11 +322,15 @@ public:
     // Register (or clear, with nullptr) the P6 gate write observer. Null in all
     // normal play / the gcc path → the hook is one predicted-untaken branch per
     // store. Owned by the caller (the gate); GbaBus only holds the pointer.
-    void set_write_observer(BusWriteObserver* obs) { write_observer_ = obs; }
+    void set_write_observer(BusWriteObserver* obs) { write_observer_ = obs; note_write_observer(); }
     bool has_write_observer() const { return write_observer_ != nullptr; }
+    // Inlined RAM writes in generated code must take the slow path while any
+    // observer is installed (g_bus_write_observed, read by runtime_arm.h).
+    void note_write_observer();
     BusWriteObserver* exchange_write_observer(BusWriteObserver* obs) {
         BusWriteObserver* previous = write_observer_;
         write_observer_ = obs;
+        note_write_observer();
         return previous;
     }
 

@@ -301,8 +301,14 @@ void sync_bios_access() {
     }
 }
 
+}  // namespace gbarecomp
+extern "C" unsigned char* g_runtime_ewram;
+extern "C" unsigned char* g_runtime_iwram;
+namespace gbarecomp {
 void set_active_bus(gba::GbaBus* bus) {
     g_active_bus = bus;
+    g_runtime_ewram = bus ? bus->ewram_ptr() : nullptr;
+    g_runtime_iwram = bus ? bus->iwram_ptr() : nullptr;
     g_runtime_ram_code_view = [](uint32_t address, uint32_t size) -> const uint8_t* {
         return g_active_bus ? g_active_bus->native_code_view(address,size) : nullptr;
     };
@@ -727,6 +733,8 @@ extern "C" long long          g_event_budget   = 0;
 // Flags for the inlined fast paths in generated code (runtime_arm.h).
 // Kept current by runtime_refresh_fast_flags() wherever a condition changes.
 extern "C" unsigned char g_tick_fast_ok = 0;
+extern "C" unsigned char* g_runtime_ewram = nullptr;
+extern "C" unsigned char* g_runtime_iwram = nullptr;
 extern "C" unsigned char g_yield_quiet = 0;
 extern "C" void runtime_refresh_fast_flags(void);
 
