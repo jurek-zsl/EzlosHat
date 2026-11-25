@@ -7,6 +7,7 @@ loads = [l.split() for l in out.splitlines() if l.split()[:1] == ["LOAD"]]
 end = int(loads[0][2], 16) + int(loads[0][4], 16)
 gap = int(loads[1][2], 16) - end
 if gap < NEED:
-    sys.exit(f"segment gap {gap} < {NEED}: add about {(NEED - gap + 512) % 4096} to "
-             "EZLO_SEGMENT_PAD in src/vita_support.cpp")
+    # Padding of d bytes changes the gap to (gap - d) mod 4096; aim for ~3584.
+    sys.exit(f"segment gap {gap} < {NEED}: add {(gap - 3584) % 4096} to "
+             "EZLO_SEGMENT_PAD (mod 4096) in src/vita_support.cpp")
 print(f"segment gap {gap} ok")
