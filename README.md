@@ -65,7 +65,8 @@ This repository only contains the tools and the Vita platform layer.
      -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake \
      -DCMAKE_BUILD_TYPE=Release \
      -DCMAKE_CXX_FLAGS_RELEASE="-O2 -DNDEBUG" -DCMAKE_C_FLAGS_RELEASE="-O2 -DNDEBUG" \
-     -DGBARECOMP_ROOT=../gbarecomp -DEZLO_ENABLE_DE14=OFF -DGBAGAME_RECOMP_UI=OFF
+     -DGBARECOMP_ROOT=../gbarecomp -DEZLO_ENABLE_DE14=OFF -DGBAGAME_RECOMP_UI=OFF \\
+     -DGBARECOMP_NATIVE_RAM_CODE_VIEWS=ON
    cmake --build build-vita --target EzlosHat.vpk -j7
    ```
 
