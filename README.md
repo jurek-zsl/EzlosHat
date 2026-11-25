@@ -18,14 +18,13 @@ used here only to say which game this project works with.
 
 ## Status
 
-Early and experimental. It boots, plays, and saves on real hardware, but performance and
-polish are still being worked on. Expect rough edges.
+Early but playable. It boots, plays, and saves on real hardware. Expect rough edges.
 
 | Area | State |
 |---|---|
 | Boot, gameplay, save files | Working |
 | Full-screen stretched video | Working |
-| Frame rate | Being optimised (see Known issues) |
+| Frame rate | Playable: about 30–45 fps while walking; short dips on room changes |
 | In-game config menu | Planned |
 | Audio, touch / rear-touch / gyro | Not yet verified on Vita |
 
@@ -87,8 +86,22 @@ A log is written to `ux0:data/EzlosHat/log.txt` on every run.
 
 ## Known issues
 
-- The frame rate can drop well below full speed; the runner logs fps and memory use
-  every two seconds to help track this down.
+- Not yet a steady 60 fps. Most remaining time goes to the game's own sound mixer
+  (recompiled GBA code) and to BIOS decompression during room changes, which
+  causes the short dips.
+- The runner logs fps, per-phase timings and a sampling profile every two seconds
+  to `log.txt`.
+
+### How it got playable
+
+- Picture drawing runs on two spare Vita cores; frames they can't keep up with are
+  skipped instead of slowing the game.
+- The per-instruction bookkeeping (cycle counting, yield checks, flags, wait states,
+  RAM access) is inlined into the recompiled code instead of called. On the Vita the
+  ~50 MB program also needed long-branch trampolines for every such call.
+- Code the game copies to RAM (its sound mixer) is checked with cheap inline views.
+
+Each step was checked to be cycle- and pixel-exact against the original runtime.
 - Self-healing code paths and the mod system are disabled on the Vita for now.
 
 ## Credits
