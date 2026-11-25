@@ -49,6 +49,7 @@ void boost_clocks() {
 // Once per 2 s: frames presented and heap in use. Lets the log show whether
 // slowdowns coincide with memory growth. Uses a native Vita thread because
 // std::thread / pthread_create fail at run time on this platform.
+static void report_samples();
 static int monitor_main(SceSize, void*) {
     unsigned long long last = 0;
     unsigned long long prev_phase[7] = {0, 0, 0, 0, 0, 0, 0};
@@ -62,6 +63,7 @@ static int monitor_main(SceSize, void*) {
                      ++tick * 2, (now - last) / 2.0, mi.uordblks / 1048576.0,
                      mi.arena / 1048576.0);
         last = now;
+        report_samples();
         // Average milliseconds per frame spent in each phase (last 2 s).
         unsigned long long cur[7], d[7];
         for (int i = 0; i < 7; ++i) { cur[i] = g_vita_phase[i]; d[i] = cur[i] - prev_phase[i]; prev_phase[i] = cur[i]; }
@@ -102,9 +104,54 @@ void pin_main_thread() {
     sceKernelChangeThreadCpuAffinityMask(0, SCE_KERNEL_CPU_MASK_USER_0);
 }
 
+// Guest-PC sampler: every ~1 ms, note where the game is executing.
+// Reported every 2 s by region and as the hottest 1 KB code blocks.
+struct ArmCpuStateView { uint32_t R[16]; uint32_t cpsr; };
+extern "C" ArmCpuStateView g_cpu;
+static unsigned g_region_hits[16];
+static unsigned g_block_pc[4096], g_block_hits[4096];
+static unsigned g_samples;
+static int sampler_main(SceSize, void*) {
+    for (;;) {
+        sceKernelDelayThread(1000);
+        const uint32_t pc = g_cpu.R[15];
+        ++g_region_hits[(pc >> 24) & 15];
+        const uint32_t block = pc >> 10;
+        unsigned slot = (block * 2654435761u) >> 20;
+        for (unsigned probe = 0; probe < 4096; ++probe, slot = (slot + 1) & 4095) {
+            if (g_block_hits[slot] == 0) { g_block_pc[slot] = block; g_block_hits[slot] = 1; break; }
+            if (g_block_pc[slot] == block) { ++g_block_hits[slot]; break; }
+        }
+        ++g_samples;
+    }
+    return 0;
+}
+static void report_samples() {
+    if (!g_samples) return;
+    std::fprintf(stderr, "pc regions:");
+    static const char* names[16] = {"bios","?","ewram","iwram","io","pal","vram","oam",
+                                    "rom0","rom0b","rom1","rom1b","rom2","rom2b","sram","?"};
+    for (int i = 0; i < 16; ++i)
+        if (g_region_hits[i]) std::fprintf(stderr, " %s=%u%%", names[i], g_region_hits[i] * 100 / g_samples);
+    std::fprintf(stderr, "\nhot blocks:");
+    for (int k = 0; k < 10; ++k) {
+        unsigned best = 0, at = 0;
+        for (unsigned i = 0; i < 4096; ++i) if (g_block_hits[i] > best) { best = g_block_hits[i]; at = i; }
+        if (!best) break;
+        std::fprintf(stderr, " %08X=%u%%", g_block_pc[at] << 10, best * 100 / g_samples);
+        g_block_hits[at] = 0;
+    }
+    std::fprintf(stderr, "\n");
+    for (unsigned i = 0; i < 4096; ++i) g_block_hits[i] = 0;
+    for (int i = 0; i < 16; ++i) g_region_hits[i] = 0;
+    g_samples = 0;
+}
+
 void start_monitor() {
     SceUID t = sceKernelCreateThread("ezlos_perf", monitor_main, 0x10000100, 0x10000, 0, 0, nullptr);
     if (t >= 0) sceKernelStartThread(t, 0, nullptr);
+    SceUID st = sceKernelCreateThread("ezlos_sampler", sampler_main, 0x10000100, 0x4000, 0, SCE_KERNEL_CPU_MASK_USER_2, nullptr);
+    if (st >= 0) sceKernelStartThread(st, 0, nullptr);
 }
 
 // One-time micro-benchmark of the per-instruction helpers, run from the game
