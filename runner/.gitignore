@@ -1,0 +1,149 @@
+# ─────────────────────────────────────────────────────────────────────
+# User-provided cartridge ROMs (copyrighted; never commit).
+# See baserom.md for the SHA-1 of the known-good dumps.
+# ─────────────────────────────────────────────────────────────────────
+roms/
+*.gba
+*.GBA
+*.nes
+*.NES
+
+# ─────────────────────────────────────────────────────────────────────
+# Save files
+# ─────────────────────────────────────────────────────────────────────
+saves/
+*.sav
+*.srm
+*.eep
+
+# ─────────────────────────────────────────────────────────────────────
+# Vendored decomp / reference projects. zeldaret/tmc lives under
+# third_party/tmc/ and is read only by tools/import_tmc_symbols
+# (names + addresses; no C source enters the build). License
+# obligations stay with the upstream checkout.
+# ─────────────────────────────────────────────────────────────────────
+# zeldaret/tmc is a tracked SUBMODULE at third_party/tmc — it pins the
+# exact upstream revision whose build reproduces this project's ROM, which
+# is what makes its symbol addresses meaningful here. It is provenance
+# only: no decomp source enters the build (tools/decomp/import-symbols.sh
+# reads names, addresses and sizes out of a WSL-side build). Note the glob:
+# a bare `third_party/` excludes the DIRECTORY, and git cannot re-include a
+# path underneath an excluded directory, so the !third_party/tmc negation
+# would never take effect. Everything else here stays ignored (agbcc
+# installs, build sandboxes, large dumps).
+third_party/*
+!third_party/tmc
+
+# ─────────────────────────────────────────────────────────────────────
+# Build output
+# ─────────────────────────────────────────────────────────────────────
+build/
+build-*/
+*.obj
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.tlog
+*.idb
+build-release/
+release-stage/
+foreign-world-cache/
+qa-artifacts/
+recomp_cache/
+recomp_coverage_*.json
+recomp_master_misses_*.toml.frag
+MinishCapRecomp.exe
+MinishCapRecomp-v*-windows-x64.zip
+MinishCapRecomp-v*-windows-x64.exe
+MinishCapRecomp-windows-*.zip
+
+# Sidecar caches written by the asset picker.
+bios.cfg
+rom.cfg
+
+# ─────────────────────────────────────────────────────────────────────
+# Generated code (derivative of copyrighted ROM; regenerate locally).
+# CLAUDE.md "Generated C is never edited" applies here — the README
+# stays tracked so the directory exists in fresh clones.
+# ─────────────────────────────────────────────────────────────────────
+generated/*.c
+generated/*.cpp
+generated/*.h
+generated/*.json
+src/gen/
+
+# ─────────────────────────────────────────────────────────────────────
+# Ghidra project DB (large, machine-specific). Only the README.md
+# and the generated import_symbols.py script are tracked; the .gpr
+# and .rep files stay local.
+# ─────────────────────────────────────────────────────────────────────
+ghidra/*
+!ghidra/README.md
+!ghidra/.gitkeep
+!ghidra/import_symbols.py
+
+# ─────────────────────────────────────────────────────────────────────
+# Diagnostic / triage artifacts. Diff dumps, frame snapshots, boot
+# traces — all regenerated on demand.
+# ─────────────────────────────────────────────────────────────────────
+_triage/
+*.log
+*.bmp
+*.png
+*.rgb
+boot_trace*.txt
+hw_trace.log
+zelda1_overworld_music_synthetic.wav
+zelda1_overworld_music_synthetic_spectrogram.pgm
+zelda1_overworld_music_canonical.wav
+zelda1_overworld_music_canonical_spectrogram.pgm
+
+# ─────────────────────────────────────────────────────────────────────
+# Local-only config overrides (per-developer, applied after game.toml).
+# ─────────────────────────────────────────────────────────────────────
+*.local.toml
+*.local.ini
+debug.local.ini
+
+# ─────────────────────────────────────────────────────────────────────
+# IDE / editor
+# ─────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.vs/
+*.vcxproj.user
+*.swp
+
+# ─────────────────────────────────────────────────────────────────────
+# OS noise
+# ─────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─────────────────────────────────────────────────────────────────────
+# Python caches
+# ─────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+
+# ─────────────────────────────────────────────────────────────────────
+# Claude auto-memory (per-user, never committed).
+# ─────────────────────────────────────────────────────────────────────
+memory/
+
+# Scratch output from tools/repro_hang.py (screenshots, stderr dumps)
+tools/repro_out/
+
+# Decomp symbol-import INPUTS: the bulky readelf dumps tools/decomp/import-symbols.sh
+# captures from the pinned decomp build. Regenerable and large; the small
+# reviewable OUTPUTS (symbols/*.tsv, symbols/<ID>_symbols.toml) and the
+# <decomp>_revision.txt provenance stamp stay tracked.
+symbols/*_syms.txt
+symbols/*_sections.txt
+variants/*/symbols/*_syms.txt
+variants/*/symbols/*_sections.txt
+
+# Exact optional-profile inputs and generated derivative code stay local.
+/patches/
+/generated/definitive14/

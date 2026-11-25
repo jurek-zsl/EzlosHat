@@ -1,0 +1,35 @@
+# Build output
+build/
+build-vita/
+**/build/
+**/build-vita/
+vita-transfer/
+
+# Never commit game data, BIOS, or anything derived from them
+*.gba
+*.sav
+gba_bios.bin
+gbarecomp/bios/*.bin
+runner/roms/
+runner/generated/*
+!runner/generated/README.md
+gbarecomp/src/runtime/generated_bios/bios_recompiled.*
+gbarecomp/src/runtime/generated_bios/bios_symbol_map.cpp
+runner/vita/local/
+recomp_cache/
+diagnostics/
+
+# Packages and binaries (contain code derived from your own ROM/BIOS)
+*.vpk
+*.self
+*.velf
+eboot.bin
+
+# Large, unused here (Android SDL fork)
+gbarecomp/platform/android/third_party/SDL/
+
+.DS_Store
+
+# Upstream game screenshots / box art (copyrighted game imagery)
+runner/recomp/launcher/boxart.tga
+gbarecomp/docs/assets/

@@ -1,0 +1,324 @@
+#include "mod_runtime.h"
+#include "recomp_launcher.h"
+#include "crc32.h"
+#include "sha1.h"
+#include "asset_picker.h"
+
+#include <chrono>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <vector>
+
+namespace fs = std::filesystem;
+
+namespace {
+
+bool g_active = false;
+
+int fail(const std::string& message) {
+    std::cerr << "FAIL: " << message << "\n";
+    return 1;
+}
+
+void reset_view() {
+    g_active = false;
+    (void)gba_mod_set_adaptive_view_enabled(0);
+}
+
+void activate_view() {
+    g_active = true;
+    (void)gba_mod_set_adaptive_view_enabled(1);
+}
+
+bool write_stored_package(const fs::path& path,
+                          const std::string& manifest) {
+    std::vector<std::uint8_t> zip;
+    const auto le16 = [&](std::uint16_t value) {
+        zip.push_back(static_cast<std::uint8_t>(value));
+        zip.push_back(static_cast<std::uint8_t>(value >> 8));
+    };
+    const auto le32 = [&](std::uint32_t value) {
+        le16(static_cast<std::uint16_t>(value));
+        le16(static_cast<std::uint16_t>(value >> 16));
+    };
+    const std::string name = "manifest.toml";
+    const std::uint32_t crc = gba::crc32(manifest.data(), manifest.size());
+
+    le32(0x04034b50u);
+    le16(20);
+    le16(0);
+    le16(0);  // stored
+    le16(0);
+    le16(0);
+    le32(crc);
+    le32(static_cast<std::uint32_t>(manifest.size()));
+    le32(static_cast<std::uint32_t>(manifest.size()));
+    le16(static_cast<std::uint16_t>(name.size()));
+    le16(0);
+    zip.insert(zip.end(), name.begin(), name.end());
+    zip.insert(zip.end(), manifest.begin(), manifest.end());
+
+    const std::uint32_t central_offset =
+        static_cast<std::uint32_t>(zip.size());
+    le32(0x02014b50u);
+    le16(20);
+    le16(20);
+    le16(0);
+    le16(0);
+    le16(0);
+    le16(0);
+    le32(crc);
+    le32(static_cast<std::uint32_t>(manifest.size()));
+    le32(static_cast<std::uint32_t>(manifest.size()));
+    le16(static_cast<std::uint16_t>(name.size()));
+    le16(0);
+    le16(0);
+    le16(0);
+    le16(0);
+    le32(0);
+    le32(0);
+    zip.insert(zip.end(), name.begin(), name.end());
+
+    const std::uint32_t central_size =
+        static_cast<std::uint32_t>(zip.size()) - central_offset;
+    le32(0x06054b50u);
+    le16(0);
+    le16(0);
+    le16(1);
+    le16(1);
+    le32(central_size);
+    le32(central_offset);
+    le16(0);
+
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    file.write(reinterpret_cast<const char*>(zip.data()),
+               static_cast<std::streamsize>(zip.size()));
+    return static_cast<bool>(file);
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+#if MINISH_ENABLE_ZELDA1_FOREIGN_WORLD
+    if (argc != 3) return fail("expected the release and developer catalog roots");
+#else
+    if (argc != 2) return fail("expected the release catalog root");
+#endif
+
+    const auto nonce = std::chrono::steady_clock::now()
+                           .time_since_epoch().count();
+    const fs::path root = fs::temp_directory_path() /
+        ("minish-preloaded-mods-" + std::to_string(nonce));
+    std::error_code ec;
+    fs::copy(argv[1], root, fs::copy_options::recursive, ec);
+    if (ec) return fail("could not stage catalog: " + ec.message());
+#if MINISH_ENABLE_ZELDA1_FOREIGN_WORLD
+    ec.clear();
+    fs::copy(argv[2], root, fs::copy_options::recursive, ec);
+    if (ec) return fail("could not stage developer catalog: " + ec.message());
+#endif
+
+    if (!gba_mod_register_reset_callback(reset_view) ||
+        !gba_mod_register_activation_plugin(
+            "minish-cap.adaptive-view", activate_view)) {
+        return fail("could not register Minish Cap plugin");
+    }
+
+    if (!gba_mod_register_activation_plugin("minish-cap.definitive-edition-1-4", +[]() {}))
+        return fail("could not register Definitive Edition test plugin");
+    const auto unicode_asset_path = root / std::filesystem::path(u8"資産.ips");
+    const std::string asset_bytes = "verified asset input";
+    { std::ofstream file(unicode_asset_path, std::ios::binary); file << asset_bytes; }
+    const auto asset_hash = gba::sha1(asset_bytes.data(), asset_bytes.size()).hex();
+    gbarecomp::AssetSpec asset_spec{};
+    asset_spec.display_name = "UTF-8 required asset";
+    asset_spec.expected_size = asset_bytes.size();
+    asset_spec.expected_sha1 = asset_hash.c_str();
+    asset_spec.hash_mismatch_is_error = true;
+    const auto utf8_asset_path = unicode_asset_path.u8string();
+    const auto checked_asset = gbarecomp::validate_asset_path(
+        std::string(utf8_asset_path.begin(), utf8_asset_path.end()), asset_spec);
+    if (!checked_asset.ok || checked_asset.bytes.size() != asset_bytes.size())
+        return fail("UTF-8 asset validation failed: " + checked_asset.error);
+    std::string error;
+    if (!gbarecomp::mod_runtime_initialize(
+            root, "minish-cap-us",
+            "b4bd50e4131b027c334547b4524e2dbbd4227130", &error)) {
+        return fail("catalog initialization failed: " + error);
+    }
+
+    const RecompLauncherCModProvider* provider =
+        gbarecomp::mod_runtime_launcher_provider();
+    constexpr std::size_t kExpectedCatalogEntries =
+#if MINISH_ENABLE_ZELDA1_FOREIGN_WORLD
+        4;
+#else
+        3;
+#endif
+    if (!provider || provider->package_count(provider->ctx) != kExpectedCatalogEntries ||
+        provider->feature_count(provider->ctx) != kExpectedCatalogEntries ||
+        !provider->archive_extension ||
+        std::string(provider->archive_extension) != ".gbamod") {
+        return fail("catalog exposed an unexpected package or feature count");
+    }
+
+    const std::string update_manifest =
+        "format_version = 1\n"
+        "id = \"minish-cap.enhancement.adaptive-view\"\n"
+        "version = \"1.1.0\"\n"
+        "name = \"Minish Cap Adaptive Widescreen\"\n"
+        "author = \"mstan\"\n"
+        "description = \"Stored archive installation test.\"\n"
+        "license = \"MIT\"\n"
+        "resolver = \"declarative\"\n"
+        "save_compatibility = \"shared\"\n\n"
+        "[[target]]\n"
+        "game_id = \"minish-cap-us\"\n"
+        "rom_sha1 = \"b4bd50e4131b027c334547b4524e2dbbd4227130\"\n\n"
+        "[[feature]]\n"
+        "id = \"adaptive-view\"\n"
+        "name = \"Adaptive Widescreen\"\n"
+        "group = \"Display\"\n"
+        "default_enabled = false\n\n"
+        "[[plugin]]\n"
+        "feature = \"adaptive-view\"\n"
+        "id = \"minish-cap.adaptive-view\"\n";
+    const fs::path archive = root / "adaptive-update.gbamod";
+    if (!write_stored_package(archive, update_manifest) ||
+        !provider->install_archive(provider->ctx, archive.string().c_str()) ||
+        provider->version_count(
+            provider->ctx, "minish-cap.enhancement.adaptive-view") != 2) {
+        return fail(std::string("could not install .gbamod update: ") +
+                    provider->last_error(provider->ctx));
+    }
+
+    RecompLauncherCModFeature feature{}, definitive{}, diagnostics{};
+    bool found_adaptive = false, found_definitive = false, found_diagnostics = false;
+#if MINISH_ENABLE_ZELDA1_FOREIGN_WORLD
+    RecompLauncherCModFeature zelda_feature{};
+    bool found_zelda = false;
+#endif
+    for (std::size_t index = 0; index < provider->feature_count(provider->ctx); ++index) {
+        RecompLauncherCModFeature candidate{};
+        if (!provider->feature_get(provider->ctx, index, &candidate))
+            return fail("could not inspect a preloaded feature");
+        if (std::string(candidate.package_id) ==
+                "minish-cap.enhancement.adaptive-view" &&
+            std::string(candidate.id) == "adaptive-view") {
+            feature = candidate;
+            found_adaptive = true;
+        }
+        if (std::string(candidate.package_id) == "minish-cap.gameplay.definitive-edition" &&
+            std::string(candidate.id) == "definitive-edition") {
+            definitive = candidate;
+            found_definitive = true;
+        }
+        if (std::string(candidate.package_id) == "minish-cap.tools.diagnostics" &&
+            std::string(candidate.id) == "diagnostics") {
+            diagnostics = candidate;
+            found_diagnostics = true;
+        }
+#if MINISH_ENABLE_ZELDA1_FOREIGN_WORLD
+        if (std::string(candidate.package_id) ==
+                "minish-cap.foreign-world.zelda1" &&
+            std::string(candidate.id) == "zelda1-foreign-world") {
+            zelda_feature = candidate;
+            found_zelda = true;
+        }
+#endif
+    }
+    if (!found_adaptive || feature.enabled) {
+        return fail("release catalog did not expose exactly disabled adaptive view");
+    }
+
+    if (!found_definitive || definitive.enabled)
+        return fail("release catalog did not expose disabled Definitive Edition");
+    if (provider->feature_resource_count &&
+        provider->feature_resource_count(provider->ctx, definitive.package_id, definitive.id) != 0)
+        return fail("built-in Definitive Edition still asks for an IPS resource");
+    std::string patch_error;
+    if (!provider->feature_enable(provider->ctx, definitive.package_id, definitive.id, 1) ||
+        !gbarecomp::mod_runtime_commit({}, &patch_error))
+        return fail("built-in Definitive Edition cannot commit without an IPS");
+    if (!provider->feature_enable(provider->ctx, definitive.package_id, definitive.id, 0))
+        return fail("could not disable Definitive Edition");
+    if (!found_diagnostics || !diagnostics.enabled)
+        return fail("visible Diagnostics feature is not enabled by default");
+
+#if MINISH_ENABLE_ZELDA1_FOREIGN_WORLD
+    if (!found_zelda || zelda_feature.enabled) {
+        return fail("developer catalog did not expose disabled Zelda 1 feature");
+    }
+    // Enabling the foreign-world feature without its exact user-owned PRG0
+    // asset must fail through the noninteractive runtime commit; it never
+    // falls back to bundled ROM data or opens a picker in this test.
+    std::string missing_asset_error;
+    if (!provider->feature_enable(provider->ctx, zelda_feature.package_id,
+                                  zelda_feature.id, 1) ||
+        gbarecomp::mod_runtime_commit({}, &missing_asset_error) ||
+        missing_asset_error.empty()) {
+        return fail("Zelda 1 feature accepted a missing required asset");
+    }
+    if (!provider->feature_enable(provider->ctx, zelda_feature.package_id,
+                                  zelda_feature.id, 0)) {
+        return fail("could not disable failed Zelda 1 feature plan");
+    }
+#endif
+
+    if (!provider->feature_enable(
+            provider->ctx, feature.package_id, feature.id, 1) ||
+        !provider->commit(provider->ctx, nullptr)) {
+        return fail(std::string("could not enable feature: ") +
+                    provider->last_error(provider->ctx));
+    }
+    gbarecomp::mod_runtime_activate_plugins();
+    if (!g_active || !gba_mod_adaptive_view_enabled())
+        return fail("enabled adaptive view did not activate");
+
+    if (!provider->feature_enable(
+            provider->ctx, feature.package_id, feature.id, 0) ||
+        !provider->commit(provider->ctx, nullptr)) {
+        return fail(std::string("could not disable feature: ") +
+                    provider->last_error(provider->ctx));
+    }
+    gbarecomp::mod_runtime_activate_plugins();
+    if (g_active || gba_mod_adaptive_view_enabled())
+        return fail("disabled adaptive view did not restore native view");
+
+    // Exercise the real title plugin and persisted launcher selections. The
+    // independent recording toggle must not depend on Definitive Edition.
+    for (int selected : {1, 0, 1}) {
+        if (!provider->feature_enable(provider->ctx, diagnostics.package_id, diagnostics.id, selected) ||
+            !provider->commit(provider->ctx, nullptr))
+            return fail("could not commit Diagnostics selection");
+        gbarecomp::mod_runtime_activate_plugins();
+        if (gba_mod_diagnostic_replay_enabled() != selected)
+            return fail("Diagnostics plugin did not honor selection");
+        if (!gbarecomp::mod_runtime_initialize(root, "minish-cap-us",
+                "b4bd50e4131b027c334547b4524e2dbbd4227130", &error))
+            return fail("could not reopen persisted catalog");
+        provider = gbarecomp::mod_runtime_launcher_provider();
+        bool matched = false;
+        for (int i = 0; i < provider->feature_count(provider->ctx); ++i) {
+            RecompLauncherCModFeature current{};
+            if (provider->feature_get(provider->ctx, i, &current) &&
+                std::string(current.package_id) == diagnostics.package_id &&
+                std::string(current.id) == diagnostics.id) {
+                matched = current.enabled == selected;
+            }
+        }
+        if (!matched || !provider->commit(provider->ctx, nullptr))
+            return fail("Diagnostics selection was not persisted");
+        gbarecomp::mod_runtime_activate_plugins();
+        if (gba_mod_diagnostic_replay_enabled() != selected)
+            return fail("reopened Diagnostics selection was not activated");
+    }
+
+    fs::remove_all(root, ec);
+    std::cout << "Minish Cap preloaded mods: release catalog, archive install, "
+                 "UI provider toggle, and trusted adaptive-view activation passed\n";
+    return 0;
+}
