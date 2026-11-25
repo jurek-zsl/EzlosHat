@@ -4730,7 +4730,10 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 const bool present_frame = !fast_forward_active ||
                     (frame % static_cast<uint64_t>(
                          fast_forward_multiplier) == 0);
-                if (present_frame) {
+                // With raster workers the picture can lag or skip guest frames;
+                // only upload one that is new. Pacing is unaffected.
+                const bool draw_frame = present_frame && ppu.take_new_picture();
+                if (draw_frame) {
                     const bool view_changed = sync_resize_driven_view();
                     if (ppu.has_latched_framebuffer() && !view_changed) {
 #if defined(GBARECOMP_NATIVE_DRAW_JOBS)
@@ -4745,7 +4748,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                     }
                 }
                 if (phase_active) fp_t1 = FramePhaseRing::now_ns();
-                if (present_frame) present_live_frame();
+                if (draw_frame) present_live_frame();
                 if (phase_active) fp_t2 = FramePhaseRing::now_ns();
                 drain_host_audio();
                 // Windowed present-in-place stays inside one step_once() for
@@ -5087,6 +5090,10 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     if (input_replay_requested) apply_input_replay();
     if (args.window) pump_host_input();
 
+    if (const char* threads = std::getenv("GBARECOMP_RASTER_THREADS");
+        threads && *threads == '1')
+        std::fprintf(stderr, "raster_workers=%s\n",
+                     gba::GbaPpu::start_raster_workers() ? "ON" : "FAILED");
     // Two timestamps only: normal render/audio/present work stays inside,
     // startup/state restore and exit saves/dumps stay outside the interval.
     const auto gameplay_begin = std::chrono::steady_clock::now();
@@ -5173,7 +5180,10 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 const bool present_frame = !fast_forward_active ||
                     (frame % static_cast<uint64_t>(
                          fast_forward_multiplier) == 0);
-                if (present_frame) {
+                // With raster workers the picture can lag or skip guest frames;
+                // only upload one that is new. Pacing is unaffected.
+                const bool draw_frame = present_frame && ppu.take_new_picture();
+                if (draw_frame) {
                     const bool view_changed = sync_resize_driven_view();
                     if (ppu.has_latched_framebuffer() && !view_changed) {
 #if defined(GBARECOMP_NATIVE_DRAW_JOBS)
@@ -5188,7 +5198,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                     }
                 }
                 if (phase_active) fp_t1 = FramePhaseRing::now_ns();
-                if (present_frame) present_live_frame();
+                if (draw_frame) present_live_frame();
                 // Framedump (capture runs only) is attributed to present_us.
                 if (framedump_dir && frame >= framedump_start &&
                     framedump_written < framedump_max) {

@@ -690,6 +690,9 @@ static void tick_devices(gba::GbaBus* bus, gba::GbaPpu* ppu, uint32_t cycles) {
 // out cost is a single env read cached in statics.
 extern "C" const char* g_tick_ctx = "gen";  // set by interp/bridge paths around runtime_tick
 static inline void cyc_probe(const char* what, uint32_t amt) {
+#if defined(__vita__)
+    (void)what; (void)amt; return;  // no environment on the console
+#endif
     static long long lo = -1, hi = -1;
     if (lo < 0) {
         const char* l = std::getenv("GBARECOMP_CYC_LO");
@@ -838,8 +841,15 @@ extern "C" void runtime_tick(uint32_t cycles) {
     // A timed/FIFO DMA may have fired inside that flush; charge its stolen bus
     // cycles (advancing the clock + devices) before the IRQ-eligibility check,
     // so a DMA-end IRQ or a timer that overflowed during the steal is seen now.
-    drain_dma_steal(bus, ppu);
+    if (bus->io().has_dma_steal_cycles()) drain_dma_steal(bus, ppu);
 
+    // Both outcomes below need an enabled pending interrupt bit.
+    if (!bus->io().irq_may_pend() && !bus->io().halted()) {
+#ifdef GBA_COSIM
+        cosim_on_tick();
+#endif
+        return;
+    }
     if (bus->io().irq_pending() && (g_cpu.cpsr & CPSR_I_BIT) == 0) {
         g_runtime_irq_from_halt = bus->io().halted() ? 1u : 0u;
         if (bus->io().halted()) {
@@ -1104,7 +1114,24 @@ void runtime_set_vblank_input_hook(std::function<void()> h) {
     g_vblank_input_hook = std::move(h);
 }
 
+// The opt-in watchdog needs the slow path on every instruction.
+static const bool g_yield_watchdog = [] {
+    const char* e = std::getenv("GBARECOMP_HANG_WATCHDOG");
+    return e && e[0] != '\0' && e[0] != '0';
+}();
+
 extern "C" bool runtime_should_yield(void) {
+    // Nothing the full check below tests can apply: no BIOS prefetch to latch,
+    // no hook, no new VBlank, not halted, no debugger. This is the common case
+    // and runs once per guest instruction.
+    if constexpr (!gbarecomp::host_stack_guard_supported()) {
+        auto* fast_bus = gbarecomp::g_active_bus;
+        if (fast_bus && g_cpu.R[15] >= 0x00004000u && !g_session_execution &&
+            !g_runtime_force_interp_hook && !g_frame_present_quit &&
+            g_runtime_vblank_starts == g_runtime_yielded_vblank_start &&
+            !g_runtime_break_pc && !g_yield_watchdog && !fast_bus->io().halted())
+            return false;
+    }
     // Host-stack budget guard: branch/dispatch chains that fail to unwind
     // (e.g. a busy-wait split across generated functions whose wake flag
     // never arrives) nest host frames without bound on finite-stack threads

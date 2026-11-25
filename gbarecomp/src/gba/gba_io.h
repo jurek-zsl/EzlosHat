@@ -241,6 +241,12 @@ public:
     // it (charging the master clock + advancing devices) at a safe point. Read
     // and reset in one call. (GBATEK § "GBA DMA Transfers" timing.)
     uint32_t pending_dma_steal_cycles() const { return dma_steal_cycles_; }
+    bool has_dma_steal_cycles() const { return dma_steal_cycles_ != 0; }
+    // Cheap conservative test: false guarantees irq_pending() is false.
+    bool irq_may_pend() const {
+        return ((io_[IoReg::IE] & io_[IoReg::IF]) |
+                (io_[IoReg::IE + 1u] & io_[IoReg::IF + 1u])) != 0;
+    }
     uint32_t take_dma_steal_cycles() {
         uint32_t c = dma_steal_cycles_;
         dma_steal_cycles_ = 0;

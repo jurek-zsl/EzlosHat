@@ -115,6 +115,34 @@ static inline uint32_t cpsr_v(void) { return (g_cpu.cpsr & CPSR_V_BIT) ? 1u : 0u
 // encoding. AL (1110) is unconditional (true); NV (1111) is "never"
 // on ARMv4T.
 int arm_cond_passes(unsigned cond);
+#if defined(GBARECOMP_INLINE_CONDITIONS)
+// Generated code always passes a constant condition, so this folds to a few
+// flag tests: smaller than the call it replaces.
+static inline int arm_cond_passes_inline(unsigned cond) {
+    const uint32_t p = g_cpu.cpsr;
+    const int n = (p & CPSR_N_BIT) != 0, z = (p & CPSR_Z_BIT) != 0;
+    const int c = (p & CPSR_C_BIT) != 0, v = (p & CPSR_V_BIT) != 0;
+    switch (cond & 0xFu) {
+        case 0x0: return z;
+        case 0x1: return !z;
+        case 0x2: return c;
+        case 0x3: return !c;
+        case 0x4: return n;
+        case 0x5: return !n;
+        case 0x6: return v;
+        case 0x7: return !v;
+        case 0x8: return c && !z;
+        case 0x9: return !c || z;
+        case 0xA: return n == v;
+        case 0xB: return n != v;
+        case 0xC: return !z && n == v;
+        case 0xD: return z || n != v;
+        case 0xE: return 1;
+        default:  return 0;
+    }
+}
+#define arm_cond_passes(cond) arm_cond_passes_inline(cond)
+#endif
 
 // ── Bus ────────────────────────────────────────────────────────────
 // All cart reads/writes flow through these. The runtime sets up the

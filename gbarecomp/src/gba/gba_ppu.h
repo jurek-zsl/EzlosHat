@@ -84,6 +84,10 @@ public:
     // invoke their observer, but keep native pixel buffers zero. Every console
     // in a network match uses this policy; only its host mirror draws pixels.
     void set_rasterization_enabled(bool enabled);
+    // Render native 240x160 lines on worker threads (gba_raster_workers.h).
+    static bool start_raster_workers();
+    // True once per newly completed picture. Always true without workers.
+    bool take_new_picture() { const bool fresh = new_picture_; new_picture_ = !raster_workers_active_; return fresh; }
     bool rasterization_enabled() const { return rasterization_enabled_; }
     // Compose a separate surface using the source's pre-scanline affine
     // registers, including HBlank DMA reloads. Does not advance either PPU.
@@ -255,6 +259,8 @@ private:
     std::vector<uint8_t> work_fb_ = std::vector<uint8_t>(kMaxFramebufferBytes);
     std::vector<uint8_t> latched_fb_ = std::vector<uint8_t>(kMaxFramebufferBytes);
     bool has_latched_fb_ = false;
+    bool new_picture_ = true;             // host presentation state, not serialized
+    bool raster_workers_active_ = false;  // this frame was offered to the workers
 
     struct AffineLineState {
         int32_t x = 0;

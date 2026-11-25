@@ -29,7 +29,7 @@
 #endif
 
 #if defined(__vita__)
-namespace minish_vita { void boost_clocks(); void start_monitor(); }
+namespace minish_vita { void boost_clocks(); void start_monitor(); void pin_main_thread(); }
 #endif
 
 namespace {
@@ -89,6 +89,9 @@ int main(int argc, char** argv) {
     std::setvbuf(stderr, nullptr, _IONBF, 0);
     setenv("GBARECOMP_DIAGNOSTICS", "0", 1);
     setenv("GBARECOMP_FRAME_PHASE", "ux0:data/EzlosHat/phase.csv", 1);
+    // Draw the picture on cores 1 and 2; the game keeps core 0 to itself.
+    setenv("GBARECOMP_RASTER_THREADS", "1", 1);
+    minish_vita::pin_main_thread();
     std::printf("EzlosHat start\n");
     minish_vita::boost_clocks();
     minish_vita::start_monitor();

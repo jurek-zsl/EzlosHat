@@ -7,6 +7,7 @@
 #include <psp2/power.h>
 #include <psp2/kernel/sysmem.h>
 #include <psp2/kernel/threadmgr.h>
+#include <psp2/kernel/cpu.h>
 
 extern "C" {
 // newlib heap: kept modest on purpose. The 35 MB program plus this heap must
@@ -51,11 +52,15 @@ static int monitor_main(SceSize, void*) {
         for (int i = 0; i < 7; ++i) { cur[i] = g_vita_phase[i]; d[i] = cur[i] - prev_phase[i]; prev_phase[i] = cur[i]; }
         if (d[6] > 0)
             std::fprintf(stderr,
-                "phase ms/frame: guest=%.2f render=%.2f present=%.2f audio=%.2f pump=%.2f pacer_wait=%.2f (frames=%llu)\n",
+                "phase ms/frame (render=on workers): guest=%.2f render=%.2f present=%.2f audio=%.2f pump=%.2f pacer_wait=%.2f (frames=%llu)\n",
                 d[0] / 1000.0 / d[6], d[1] / 1000.0 / d[6], d[2] / 1000.0 / d[6],
                 d[3] / 1000.0 / d[6], d[4] / 1000.0 / d[6], d[5] / 1000.0 / d[6], d[6]);
     }
     return 0;
+}
+
+void pin_main_thread() {
+    sceKernelChangeThreadCpuAffinityMask(0, SCE_KERNEL_CPU_MASK_USER_0);
 }
 
 void start_monitor() {

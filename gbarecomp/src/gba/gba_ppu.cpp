@@ -4,6 +4,7 @@
 #include "gba_color.h"
 #include "gba_ui_layers.h"
 #include "gba_render_profile.h"
+#include "gba_raster_workers.h"
 #include "foreign_presentation_internal.h"
 #if defined(GBARECOMP_NATIVE_DRAW_JOBS)
 #include "gba_native_draw_frame.h"
@@ -3074,6 +3075,16 @@ void GbaPpu::render_scanline(uint32_t y,
     }
 
     if (!rasterization_enabled_) return;
+    if (y == 0)
+        raster_workers_active_ = RasterWorkers::enabled() && !presentation_ &&
+            !view_expanded() && !high_resolution_ &&
+            !foreign_presentation_internal::background() &&
+            !foreign_presentation_internal::obj_focus() &&
+            !foreign_presentation_internal::screen_overlay();
+    if (raster_workers_active_) {
+        RasterWorkers::record_line(y, dispcnt, affine_io.data(), vram, oam, pal);
+        return;
+    }
 #if defined(GBARECOMP_NATIVE_DRAW_JOBS)
     // Capture at the existing post-affine, pre-HBlank-DMA boundary. Foreign
     // content is not hardware input and must execute its original callback path.
@@ -3191,6 +3202,14 @@ void GbaPpu::mark_framebuffer_latched() {
         native_work_base_.reset();
         native_latched_.reset();
 #endif
+    if (raster_workers_active_) {
+        if (RasterWorkers::frame_boundary(latched_fb_.data())) {
+            new_picture_ = true;
+            has_latched_fb_ = true;
+        }
+        return;
+    }
+    new_picture_ = true;
     if (rasterization_enabled_)
         std::memcpy(latched_fb_.data(), work_fb_.data(), render_bytes());
 #if defined(GBARECOMP_NATIVE_DRAW_JOBS)
@@ -3273,6 +3292,15 @@ const uint8_t* GbaPpu::latched_framebuffer() const {
     materialize_native_latch();
 #endif
     return latched_fb_.data();
+}
+
+bool GbaPpu::start_raster_workers() {
+    return RasterWorkers::start([](uint8_t* rgb, uint32_t y, uint16_t dispcnt,
+                                   const uint8_t* io, const uint8_t* vram,
+                                   const uint8_t* oam, const uint8_t* pal) {
+        render_scanline_impl<false, true>(rgb, y, dispcnt, io, vram, oam, pal,
+                                          kScreenWidth, kScreenHeight);
+    });
 }
 
 void GbaPpu::set_rasterization_enabled(bool enabled) {

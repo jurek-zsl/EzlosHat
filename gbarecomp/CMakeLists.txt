@@ -371,6 +371,7 @@ add_library(gbarecomp_gba STATIC
     src/gba/gba_dma.cpp
     src/gba/gba_timers.cpp
     src/gba/gba_ppu.cpp
+    src/gba/gba_raster_workers.cpp
     src/gba/gba_high_resolution.cpp
     src/gba/gba_audio.cpp
     src/gba/mod_audio.cpp
