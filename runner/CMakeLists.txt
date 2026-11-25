@@ -479,6 +479,11 @@ if(CMAKE_C_COMPILER MATCHES "arm-vita-eabi")
     set(VITA_APP_NAME "Ezlo's Hat")
     set(VITA_TITLEID  "MCAP00001")
     set(VITA_VERSION  "00.10")
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_custom_command(TARGET MinishCapRecomp POST_BUILD
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_vita_segments.py
+                $ENV{VITASDK}/bin/arm-vita-eabi-readelf $<TARGET_FILE:MinishCapRecomp>
+        VERBATIM)
     vita_create_self(EzlosHat.self MinishCapRecomp UNSAFE)
     # Art: neutral placeholders are committed in vita/sce_sys. Put your own in
     # vita/local/sce_sys (git-ignored) and it is used instead.

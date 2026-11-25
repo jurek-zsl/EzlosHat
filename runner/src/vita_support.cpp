@@ -16,6 +16,12 @@ unsigned int _newlib_heap_size_user = 96u * 1024u * 1024u;
 // Generated guest code is deeply nested; give the main thread a big stack.
 unsigned int sceUserMainThreadStackSize = 4u * 1024u * 1024u;
 extern volatile unsigned long long g_vita_present_count;
+// vita-elf-create needs ~3.3 KB free between the code and data segments.
+// Adjust EZLO_SEGMENT_PAD (bytes, 0-4095) if the post-link check fails.
+#ifndef EZLO_SEGMENT_PAD
+#define EZLO_SEGMENT_PAD 2048
+#endif
+__attribute__((used)) const unsigned char ezlo_segment_pad[EZLO_SEGMENT_PAD] = {1};
 extern volatile unsigned long long g_vita_phase[7];
 }
 

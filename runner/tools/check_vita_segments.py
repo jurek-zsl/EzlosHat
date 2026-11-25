@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+"""Fail if the gap after the code segment is too small for vita-elf-create."""
+import subprocess, sys
+NEED = 3300
+out = subprocess.run([sys.argv[1], "-lW", sys.argv[2]], capture_output=True, text=True, check=True).stdout
+loads = [l.split() for l in out.splitlines() if l.split()[:1] == ["LOAD"]]
+end = int(loads[0][2], 16) + int(loads[0][4], 16)
+gap = int(loads[1][2], 16) - end
+if gap < NEED:
+    sys.exit(f"segment gap {gap} < {NEED}: add about {(NEED - gap + 512) % 4096} to "
+             "EZLO_SEGMENT_PAD in src/vita_support.cpp")
+print(f"segment gap {gap} ok")
