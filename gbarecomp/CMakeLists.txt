@@ -23,9 +23,14 @@ if(GBARECOMP_DEFERRED_HD_EXPERIMENT)
     set_property(SOURCE src/runtime/runtime.cpp APPEND PROPERTY COMPILE_DEFINITIONS GBARECOMP_DEFERRED_HD_EXPERIMENT=1)
 endif()
 if(GBARECOMP_DETAILED_PHASE_PROFILE)
-    set_property(SOURCE src/runtime/runtime_bus_bridge.cpp src/armv4t/runtime_arm.cpp
-        src/gba/gba_ppu.cpp src/gba/gba_high_resolution.cpp APPEND PROPERTY
+    set_property(SOURCE src/runtime/runtime_bus_bridge.cpp src/armv4t/runtime_arm.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS GBARECOMP_DETAILED_PHASE_PROFILE=1)
+    # Renderer timers use lazily initialized statics; on the Vita they are not
+    # thread-safe and the raster worker threads would race on them.
+    if(NOT CMAKE_C_COMPILER MATCHES "arm-vita-eabi")
+        set_property(SOURCE src/gba/gba_ppu.cpp src/gba/gba_high_resolution.cpp APPEND PROPERTY
+            COMPILE_DEFINITIONS GBARECOMP_DETAILED_PHASE_PROFILE=1)
+    endif()
 endif()
 
 set(CMAKE_C_STANDARD 11)

@@ -517,6 +517,35 @@ extern unsigned long long g_runtime_state_epoch;
 // at machine reset (runtime_trace_reset). Stamped onto every ring entry so the
 // recomp and interp oracle can be aligned by identical cycle counts. (MC-HP-002.)
 extern unsigned long long g_runtime_cycles;
+// Fast-path state for inlined generated code (see runtime_bus_bridge.cpp).
+extern unsigned char g_tick_fast_ok;
+extern unsigned char g_yield_quiet;
+extern unsigned long long g_pending_cycles;
+extern long long g_event_budget;
+void runtime_tick_budget_expired(void);
+void runtime_refresh_fast_flags(void);
+#if defined(GBARECOMP_INLINE_CONDITIONS)
+// Per-instruction prologue/epilogue without a call in the common case. Both
+// fall back to the full out-of-line functions whenever a flag says so.
+static inline bool runtime_should_yield_inline(void) {
+    if (g_yield_quiet && g_cpu.R[15] >= 0x00004000u && !g_runtime_force_interp_hook)
+        return false;
+    return runtime_should_yield();
+}
+static inline void runtime_tick_inline(uint32_t cycles) {
+    if (g_tick_fast_ok) {
+        g_runtime_cycles += cycles;
+        g_pending_cycles += cycles;
+        g_event_budget -= (long long)cycles;
+        if (g_event_budget > 0) return;
+        runtime_tick_budget_expired();
+        return;
+    }
+    runtime_tick(cycles);
+}
+#define runtime_should_yield() runtime_should_yield_inline()
+#define runtime_tick(cycles) runtime_tick_inline(cycles)
+#endif
 
 // P6 sljit differential gate — shadow-tick mode. While g_runtime_shadow_tick is
 // nonzero (only during a healed shard's throwaway validation re-run) runtime_tick

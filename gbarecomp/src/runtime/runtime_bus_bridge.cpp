@@ -69,8 +69,10 @@ extern "C" unsigned long long g_runtime_vblank_starts = 0;
 extern "C" unsigned long long g_prof_scanline_ns = 0;
 extern "C" unsigned long long g_prof_scanline_count = 0;
 #if defined(GBARECOMP_DETAILED_PHASE_PROFILE)
-static unsigned long long g_prof_device_ns[6]{}, g_prof_device_count[6]{};
+extern "C" unsigned long long g_prof_device_ns[6]{}, g_prof_device_count[6]{};
 #endif
+// Guest instructions retired (one runtime_tick each); read by the Vita monitor.
+extern "C" unsigned long long g_vita_ticks = 0;
 // Native event service is deliberately separate from frame presentation and
 // guest input. It keeps a window responsive while one emulated frame spends a
 // long time in translated software-rendering or decode code.
@@ -84,6 +86,9 @@ std::function<void()> g_frame_start_hook;
 // the policy's answer for this frame. Null preserves the established path.
 std::function<void()> g_vblank_input_hook;
 static const bool g_phase_prof = [] {
+#if defined(__vita__) && defined(GBARECOMP_DETAILED_PHASE_PROFILE)
+    return true;  // no environment on the console; the monitor prints it
+#endif
     const char* e = std::getenv("GBARECOMP_PHASE_PROF");
     bool on = (e != nullptr) && !(e[0] == '0' && e[1] == '\0');
     if (on) {
@@ -315,10 +320,12 @@ void set_active_bus(gba::GbaBus* bus) {
         gba::waits_reset(g_runtime_waits);
     }
     start_sampler();  // no-op unless GBARECOMP_SAMPLE is set
+    runtime_refresh_fast_flags();
 }
 
 void set_active_ppu(gba::GbaPpu* ppu) {
     g_active_ppu = ppu;
+    runtime_refresh_fast_flags();
 }
 
 gba::GbaBus* active_bus() {
@@ -715,8 +722,13 @@ static inline void cyc_probe(const char* what, uint32_t amt) {
 // (tick_devices) and reschedules. tick_devices chunks internally to exact
 // sub-event boundaries, so materializing a batched delta is bit-identical to
 // per-instruction ticking — at a fraction of the call overhead.
-static unsigned long long g_pending_cycles = 0;
-static long long          g_event_budget   = 0;
+extern "C" unsigned long long g_pending_cycles = 0;
+extern "C" long long          g_event_budget   = 0;
+// Flags for the inlined fast paths in generated code (runtime_arm.h).
+// Kept current by runtime_refresh_fast_flags() wherever a condition changes.
+extern "C" unsigned char g_tick_fast_ok = 0;
+extern "C" unsigned char g_yield_quiet = 0;
+extern "C" void runtime_refresh_fast_flags(void);
 
 static inline void recompute_event_budget(gba::GbaBus* bus, gba::GbaPpu* ppu) {
     uint32_t h  = ppu->cycles_until_next_event();
@@ -773,6 +785,7 @@ extern "C" void runtime_mmio_catch_up(void) {
     if (!bus || !ppu || g_pending_cycles == 0) return;
     tick_devices(bus, ppu, static_cast<uint32_t>(g_pending_cycles));
     g_pending_cycles = 0;
+    runtime_refresh_fast_flags();
 }
 
 // Recompute the next-event horizon after a config-changing MMIO write (timer
@@ -792,6 +805,7 @@ extern "C" void runtime_resync_horizon(void) {
     cyc_probe("resync", 0);
     drain_dma_steal(bus, ppu);
     recompute_event_budget(bus, ppu);
+    runtime_refresh_fast_flags();
 }
 
 static uint32_t g_service_tick_divider = 0;
@@ -807,31 +821,7 @@ static void account_host_service_instructions(uint32_t count) {
     }
 }
 
-extern "C" void runtime_tick(uint32_t cycles) {
-    if (g_session_execution) { g_runtime_cycles += cycles; return; }
-    // P6 shadow-tick: a healed shard's validation re-run only accumulates its
-    // cycle cost (for the cycle diff); the interpreter pass already pumped the
-    // devices / delivered IRQs for this window, so do nothing else here.
-    if (g_runtime_shadow_tick) { g_runtime_shadow_cycles += cycles; return; }
-
-    auto* bus = gbarecomp::g_active_bus;
-    auto* ppu = gbarecomp::g_active_ppu;
-    if (!bus || !ppu || cycles == 0) return;
-
-    // Some software renderers execute millions of guest instructions before
-    // reaching a GBA frame boundary. Downsample the wall-clock check so native
-    // window messages keep flowing without putting a clock read on every guest
-    // instruction.
-    if (g_host_service_hook) account_host_service_instructions(1);
-
-    cyc_probe("tick", cycles);
-    g_runtime_cycles += cycles;
-    // Lazy device catch-up: advance the master clock every instruction (cheap),
-    // but materialize device state only when the next-event horizon is reached.
-    // (IRQ-eligibility is still checked every instruction below — that is cheap,
-    // and IF can only change at a flush, so checking between flushes is exact.)
-    g_pending_cycles += cycles;
-    g_event_budget   -= static_cast<long long>(cycles);
+static inline void tick_after_accumulate_impl(gba::GbaBus* bus, gba::GbaPpu* ppu) {
     if (g_event_budget <= 0) {
         tick_devices(bus, ppu, static_cast<uint32_t>(g_pending_cycles));
         g_pending_cycles = 0;
@@ -898,6 +888,55 @@ extern "C" void runtime_tick(uint32_t cycles) {
     cosim_on_tick();
 #endif
 }
+
+static inline void tick_after_accumulate(gba::GbaBus* bus, gba::GbaPpu* ppu) {
+    tick_after_accumulate_impl(bus, ppu);
+    runtime_refresh_fast_flags();
+}
+
+extern "C" void runtime_tick(uint32_t cycles) {
+    ++g_vita_ticks;
+    if (g_session_execution) { g_runtime_cycles += cycles; return; }
+    // P6 shadow-tick: a healed shard's validation re-run only accumulates its
+    // cycle cost (for the cycle diff); the interpreter pass already pumped the
+    // devices / delivered IRQs for this window, so do nothing else here.
+    if (g_runtime_shadow_tick) { g_runtime_shadow_cycles += cycles; return; }
+
+    auto* bus = gbarecomp::g_active_bus;
+    auto* ppu = gbarecomp::g_active_ppu;
+    if (!bus || !ppu || cycles == 0) return;
+
+    // Some software renderers execute millions of guest instructions before
+    // reaching a GBA frame boundary. Downsample the wall-clock check so native
+    // window messages keep flowing without putting a clock read on every guest
+    // instruction.
+    if (g_host_service_hook) account_host_service_instructions(1);
+
+    cyc_probe("tick", cycles);
+    g_runtime_cycles += cycles;
+    // Lazy device catch-up: advance the master clock every instruction (cheap),
+    // but materialize device state only when the next-event horizon is reached.
+    // (IRQ-eligibility is still checked every instruction below — that is cheap,
+    // and IF can only change at a flush, so checking between flushes is exact.)
+    g_pending_cycles += cycles;
+    g_event_budget   -= static_cast<long long>(cycles);
+    tick_after_accumulate(bus, ppu);
+}
+
+// Inlined fast path ran out of event budget (or an event is due): finish
+// exactly as runtime_tick would after its accumulation step.
+extern "C" void runtime_tick_budget_expired(void) {
+    auto* bus = gbarecomp::g_active_bus;
+    auto* ppu = gbarecomp::g_active_ppu;
+    if (g_host_service_hook) account_host_service_instructions(16);
+    tick_after_accumulate(bus, ppu);
+}
+
+static const bool g_cyc_probe_on = [] {
+    const char* h = std::getenv("GBARECOMP_CYC_HI");
+    return h && std::atoll(h) != 0;
+}();
+
 
 // ── Stage 2: idle-loop elision prover ───────────────────────────────────────
 // Per back-edge of a statically-eligible quiescent loop (codegen emits the
@@ -1120,18 +1159,19 @@ static const bool g_yield_watchdog = [] {
     return e && e[0] != '\0' && e[0] != '0';
 }();
 
+static bool runtime_should_yield_slow(void);
+
 extern "C" bool runtime_should_yield(void) {
-    // Nothing the full check below tests can apply: no BIOS prefetch to latch,
-    // no hook, no new VBlank, not halted, no debugger. This is the common case
-    // and runs once per guest instruction.
-    if constexpr (!gbarecomp::host_stack_guard_supported()) {
-        auto* fast_bus = gbarecomp::g_active_bus;
-        if (fast_bus && g_cpu.R[15] >= 0x00004000u && !g_session_execution &&
-            !g_runtime_force_interp_hook && !g_frame_present_quit &&
-            g_runtime_vblank_starts == g_runtime_yielded_vblank_start &&
-            !g_runtime_break_pc && !g_yield_watchdog && !fast_bus->io().halted())
-            return false;
-    }
+    // Common case, once per guest instruction: no BIOS prefetch to latch,
+    // no hook, no new VBlank, not halted, no debugger (g_yield_quiet).
+    if (g_yield_quiet && g_cpu.R[15] >= 0x00004000u && !g_runtime_force_interp_hook)
+        return false;
+    const bool result = runtime_should_yield_slow();
+    runtime_refresh_fast_flags();
+    return result;
+}
+
+static bool runtime_should_yield_slow(void) {
     // Host-stack budget guard: branch/dispatch chains that fail to unwind
     // (e.g. a busy-wait split across generated functions whose wake flag
     // never arrives) nest host frames without bound on finite-stack threads
@@ -1358,6 +1398,7 @@ void runtime_restore_timing_values(const RuntimeTimingContext& in) {
     g_runtime_yielded_vblank_start = in.yielded_vblank;
     g_pending_cycles = in.pending_cycles;
     g_event_budget = in.event_budget;
+    runtime_refresh_fast_flags();
 }
 void runtime_restore_timing_context(const RuntimeTimingContext& in) {
     g_runtime_cycles = in.cycles;
@@ -1372,6 +1413,7 @@ void runtime_restore_timing_context(const RuntimeTimingContext& in) {
     g_vcount_spin_progress = 0;
     ++g_idle_disturb_epoch;
     ++g_runtime_state_epoch;
+    runtime_refresh_fast_flags();
 }
 void runtime_session_execution(bool enabled) {
     g_runtime_native_region_context=enabled?0u:1u;
@@ -1381,6 +1423,7 @@ void runtime_session_execution(bool enabled) {
     g_session_private_memory_owner = nullptr;
     g_session_private_memory_deadline = 0;
     g_session_private_memory_owner_check = nullptr;
+    runtime_refresh_fast_flags();
 }
 void runtime_session_begin_instruction() {
     g_session_instruction_started = false; g_session_slice = false;
@@ -1588,4 +1631,19 @@ extern "C" void runtime_native_region_end(RuntimeNativeRegion* region) {
     runtime_tick(region->cycles);
     if(g_host_service_hook && instructions>1)
         account_host_service_instructions(instructions-1);
+}
+
+extern "C" void runtime_refresh_fast_flags(void) {
+    auto* bus = gbarecomp::g_active_bus;
+    auto* ppu = gbarecomp::g_active_ppu;
+    bool tick_ok = bus && ppu && !g_session_execution && !g_runtime_shadow_tick &&
+        !g_cyc_probe_on && !bus->io().has_dma_steal_cycles() &&
+        !bus->io().irq_may_pend() && !bus->io().halted();
+#ifdef GBA_COSIM
+    tick_ok = false;
+#endif
+    g_tick_fast_ok = tick_ok ? 1u : 0u;
+    g_yield_quiet = (bus && !g_session_execution && !g_frame_present_quit &&
+        g_runtime_vblank_starts == g_runtime_yielded_vblank_start &&
+        !g_runtime_break_pc && !g_yield_watchdog && !bus->io().halted()) ? 1u : 0u;
 }

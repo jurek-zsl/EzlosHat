@@ -375,6 +375,7 @@ void ws_sidecar_active_fill() {
     const unsigned saved_shadow = g_runtime_shadow_tick;
     const unsigned long long saved_shadow_cyc = g_runtime_shadow_cycles;
     g_runtime_shadow_tick = 1u;
+    runtime_refresh_fast_flags();
     // Preserve the VRAM scratch the synthetic draws overwrite (so VRAM stays
     // byte-identical to a non-sidecar run). Each draw touches offsets 0,1,0x20,
     // 0x21; 0x80 bytes/region covers it with margin.
@@ -414,6 +415,7 @@ void ws_sidecar_active_fill() {
 
     // Restore everything so the guest is bit-for-bit unaffected.
     g_runtime_shadow_tick = saved_shadow;
+    runtime_refresh_fast_flags();
     g_runtime_shadow_cycles = saved_shadow_cyc;
     for (int k = 0; k < 3; ++k) {
         wr32_iwram(bus, g_tilemap_ptrs + static_cast<uint32_t>(k) * 4u, saved_ptr[k]);

@@ -1106,9 +1106,14 @@ void exchange_instruction_set(uint32_t target_pc) {
 
 #if defined(GBARECOMP_DETAILED_PHASE_PROFILE)
 namespace {
-unsigned long long dispatch_resolve_ns=0, dispatch_resolve_calls=0;
+}
+extern "C" unsigned long long dispatch_resolve_ns=0, dispatch_resolve_calls=0;
+namespace {
 const DispatchEntry* profiled_dispatch_resolve(uint32_t pc) {
     static const bool enabled=[] {
+#if defined(__vita__)
+        return true;
+#endif
         const char* value=std::getenv("GBARECOMP_PHASE_PROF");
         const bool on=value && !(value[0]=='0' && value[1]=='\0');
         if(on) std::atexit([] {

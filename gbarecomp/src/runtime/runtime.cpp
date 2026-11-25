@@ -1439,6 +1439,9 @@ bool resolve_native_save_override(int argc, char** argv, const RunOptions& opts,
 extern "C" { volatile unsigned long long g_vita_phase[7] = {0, 0, 0, 0, 0, 0, 0}; }
 #endif
 
+#if defined(__vita__)
+extern "C" void ezlo_microbench();
+#endif
 int run_game(int argc, char** argv, const RunOptions& opts) {
     const auto player_dir = player_config_directory(
         opts, argc > 0 && argv ? argv[0] : nullptr);
@@ -4715,6 +4718,8 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                      "GBARECOMP_PRESENT_IN_PLACE=0 to disable)\n");
         runtime_set_frame_present_hook([&]() -> bool {
             uint64_t frame = ppu.frame_count();
+#if defined(__vita__)
+#endif
             if (frame != last_presented_frame) {
                 // The previous frame has executed: fingerprint it before any
                 // host work at this boundary.

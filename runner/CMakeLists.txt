@@ -472,6 +472,9 @@ if(CMAKE_C_COMPILER MATCHES "arm-vita-eabi")
     # Must match gbarecomp: no emulated thread_local on the Vita.
     add_compile_definitions(thread_local= _Thread_local=)
     target_sources(MinishCapRecomp PRIVATE src/vita_support.cpp)
+    if(GBARECOMP_DETAILED_PHASE_PROFILE)
+        set_property(SOURCE src/vita_support.cpp APPEND PROPERTY COMPILE_DEFINITIONS GBARECOMP_DETAILED_PHASE_PROFILE=1)
+    endif()
     target_link_libraries(MinishCapRecomp PRIVATE
         SDL2
         SceGxm_stub SceDisplay_stub SceCtrl_stub SceAppMgr_stub SceAppUtil_stub
