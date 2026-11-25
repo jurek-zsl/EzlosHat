@@ -4,11 +4,9 @@
 #include <cstddef>
 #include <cstdio>
 #include <malloc.h>
-#include <thread>
-#include <chrono>
-
 #include <psp2/power.h>
 #include <psp2/kernel/sysmem.h>
+#include <psp2/kernel/threadmgr.h>
 
 extern "C" {
 // newlib heap: kept modest on purpose. The 35 MB program plus this heap must
@@ -32,22 +30,27 @@ void boost_clocks() {
                 scePowerGetGpuClockFrequency(), scePowerGetGpuXbarClockFrequency());
 }
 
-// Once per 2 s: frames presented, heap in use, free system memory. Lets the
-// log show whether slowdowns coincide with memory growth.
+// Once per 2 s: frames presented and heap in use. Lets the log show whether
+// slowdowns coincide with memory growth. Uses a native Vita thread because
+// std::thread / pthread_create fail at run time on this platform.
+static int monitor_main(SceSize, void*) {
+    unsigned long long last = 0;
+    int tick = 0;
+    for (;;) {
+        sceKernelDelayThread(2 * 1000 * 1000);
+        const unsigned long long now = g_vita_present_count;
+        struct mallinfo mi = mallinfo();
+        std::fprintf(stderr, "perf t=%ds fps=%.1f heap_used=%.1fMB heap_arena=%.1fMB\n",
+                     ++tick * 2, (now - last) / 2.0, mi.uordblks / 1048576.0,
+                     mi.arena / 1048576.0);
+        last = now;
+    }
+    return 0;
+}
+
 void start_monitor() {
-    std::thread([] {
-        unsigned long long last = 0;
-        int tick = 0;
-        for (;;) {
-            std::this_thread::sleep_for(std::chrono::seconds(2));
-            const unsigned long long now = g_vita_present_count;
-            struct mallinfo mi = mallinfo();
-            std::fprintf(stderr, "perf t=%ds fps=%.1f heap_used=%.1fMB heap_arena=%.1fMB\n",
-                         ++tick * 2, (now - last) / 2.0, mi.uordblks / 1048576.0,
-                         mi.arena / 1048576.0);
-            last = now;
-        }
-    }).detach();
+    SceUID t = sceKernelCreateThread("ezlos_perf", monitor_main, 0x10000100, 0x10000, 0, 0, nullptr);
+    if (t >= 0) sceKernelStartThread(t, 0, nullptr);
 }
 
 }  // namespace minish_vita
