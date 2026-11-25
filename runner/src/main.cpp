@@ -88,6 +88,7 @@ int main(int argc, char** argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     std::setvbuf(stderr, nullptr, _IONBF, 0);
     setenv("GBARECOMP_DIAGNOSTICS", "0", 1);
+    setenv("GBARECOMP_FRAME_PHASE", "ux0:data/EzlosHat/phase.csv", 1);
     std::printf("EzlosHat start\n");
     minish_vita::boost_clocks();
     minish_vita::start_monitor();

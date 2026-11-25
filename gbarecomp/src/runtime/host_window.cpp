@@ -2944,6 +2944,32 @@ void HostWindow::present(const uint8_t* rgb888, unsigned sampled_w, unsigned sam
     if (touch_input_enabled(b)) publish_touch_presentation(b);
 #if defined(__ANDROID__) || defined(__vita__)
     const SDL_Rect destination{layout.x, layout.y, layout.width, layout.height};
+#if defined(__vita__)
+    // Start every frame from a clean renderer state so no stale logical size,
+    // scale, viewport or clip rectangle can scale the picture a second time.
+    SDL_RenderSetLogicalSize(b->renderer, 0, 0);
+    SDL_RenderSetScale(b->renderer, 1.0f, 1.0f);
+    SDL_RenderSetViewport(b->renderer, nullptr);
+    SDL_RenderSetClipRect(b->renderer, nullptr);
+    {
+        static int vita_diag_count = 0;
+        if (vita_diag_count < 3) {
+            ++vita_diag_count;
+            int tw = 0, th = 0, lw = 0, lh = 0, ow = 0, oh = 0;
+            float sx = 0, sy = 0;
+            SDL_RenderGetLogicalSize(b->renderer, &lw, &lh);
+            SDL_RenderGetScale(b->renderer, &sx, &sy);
+            SDL_GetRendererOutputSize(b->renderer, &ow, &oh);
+            SDL_QueryTexture(frame_texture, nullptr, nullptr, &tw, &th);
+            SDL_Rect vp{}; SDL_RenderGetViewport(b->renderer, &vp);
+            std::fprintf(stderr,
+                "vita_present: tex=%dx%d dest=%d,%d %dx%d out=%dx%d logical=%dx%d "
+                "scale=%.2f,%.2f vp=%d,%d %dx%d base=%dx%d\n",
+                tw, th, destination.x, destination.y, destination.w, destination.h,
+                ow, oh, lw, lh, sx, sy, vp.x, vp.y, vp.w, vp.h, b->base_w, b->base_h);
+        }
+    }
+#endif
     SDL_RenderCopy(b->renderer, frame_texture, nullptr, &destination);
 #else
     if (!b->expanded_view && !b->resize_driven_view && !b->integer_scale) {

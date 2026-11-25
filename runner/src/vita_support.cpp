@@ -15,6 +15,7 @@ unsigned int _newlib_heap_size_user = 96u * 1024u * 1024u;
 // Generated guest code is deeply nested; give the main thread a big stack.
 unsigned int sceUserMainThreadStackSize = 4u * 1024u * 1024u;
 extern volatile unsigned long long g_vita_present_count;
+extern volatile unsigned long long g_vita_phase[7];
 }
 
 namespace minish_vita {
@@ -35,6 +36,7 @@ void boost_clocks() {
 // std::thread / pthread_create fail at run time on this platform.
 static int monitor_main(SceSize, void*) {
     unsigned long long last = 0;
+    unsigned long long prev_phase[7] = {0, 0, 0, 0, 0, 0, 0};
     int tick = 0;
     for (;;) {
         sceKernelDelayThread(2 * 1000 * 1000);
@@ -44,6 +46,14 @@ static int monitor_main(SceSize, void*) {
                      ++tick * 2, (now - last) / 2.0, mi.uordblks / 1048576.0,
                      mi.arena / 1048576.0);
         last = now;
+        // Average milliseconds per frame spent in each phase (last 2 s).
+        unsigned long long cur[7], d[7];
+        for (int i = 0; i < 7; ++i) { cur[i] = g_vita_phase[i]; d[i] = cur[i] - prev_phase[i]; prev_phase[i] = cur[i]; }
+        if (d[6] > 0)
+            std::fprintf(stderr,
+                "phase ms/frame: guest=%.2f render=%.2f present=%.2f audio=%.2f pump=%.2f pacer_wait=%.2f (frames=%llu)\n",
+                d[0] / 1000.0 / d[6], d[1] / 1000.0 / d[6], d[2] / 1000.0 / d[6],
+                d[3] / 1000.0 / d[6], d[4] / 1000.0 / d[6], d[5] / 1000.0 / d[6], d[6]);
     }
     return 0;
 }

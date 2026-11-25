@@ -1434,6 +1434,11 @@ bool resolve_native_save_override(int argc, char** argv, const RunOptions& opts,
     return true;
 }
 
+#if defined(__vita__)
+// Per-phase microsecond totals read by the Vita monitor thread.
+extern "C" { volatile unsigned long long g_vita_phase[7] = {0, 0, 0, 0, 0, 0, 0}; }
+#endif
+
 int run_game(int argc, char** argv, const RunOptions& opts) {
     const auto player_dir = player_config_directory(
         opts, argc > 0 && argv ? argv[0] : nullptr);
@@ -3132,6 +3137,12 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
             s.audio_us = us(t2, t3);
             s.pump_us = us(t3, t4);
             s.pacer_us = us(t4, t5);
+#if defined(__vita__)
+            g_vita_phase[0] += s.guest_us;  g_vita_phase[1] += s.render_us;
+            g_vita_phase[2] += s.present_us; g_vita_phase[3] += s.audio_us;
+            g_vita_phase[4] += s.pump_us;   g_vita_phase[5] += s.pacer_us;
+            g_vita_phase[6] += 1;
+#endif
             const unsigned long long cc = overlay_game_thread_compile_ns();
             s.compile_us = static_cast<uint32_t>(
                 (cc - prev_compile_ns) / 1000ull);
