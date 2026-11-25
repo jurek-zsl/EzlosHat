@@ -469,6 +469,8 @@ endif()
 # ─────────────────────────────────────────────────────────────────────
 if(CMAKE_C_COMPILER MATCHES "arm-vita-eabi")
     include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
+    # Must match gbarecomp: no emulated thread_local on the Vita.
+    add_compile_definitions(thread_local= _Thread_local=)
     target_sources(MinishCapRecomp PRIVATE src/vita_support.cpp)
     target_link_libraries(MinishCapRecomp PRIVATE
         SDL2

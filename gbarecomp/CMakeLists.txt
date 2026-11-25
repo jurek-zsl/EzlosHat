@@ -322,6 +322,10 @@ target_include_directories(gbarecomp_armv4t PUBLIC
 # PS Vita executables are static and the Sony ELF converter rejects GOT-relative
 # relocations from -fPIC code, so only enable PIC off-Vita (overlay shared libs).
 if(CMAKE_C_COMPILER MATCHES "arm-vita-eabi")
+    # VitaSDK lowers thread_local to emulated TLS: a library call on every
+    # access. Guest code runs on one thread (raster workers never touch these
+    # variables), so plain globals are equivalent and far faster.
+    add_compile_definitions(thread_local= _Thread_local=)
     set(GBARECOMP_PIC OFF)
 else()
     set(GBARECOMP_PIC ON)
