@@ -1,17 +1,18 @@
 # Ezlo's Hat
 
-An experimental **PlayStation Vita** runner for a Game Boy Advance action-adventure game,
-built on a static-recompilation framework. It translates the machine code of a game
-**you already own** into native code that runs on the Vita, at full screen and with
-Vita controls.
+An experimental **PlayStation Vita** runner for *The Legend of Zelda: The Minish Cap*
+(Game Boy Advance), built on a static-recompilation framework. It translates the machine
+code of a copy of the game **you already own** into native code that runs on the Vita, at
+full screen and with Vita controls.
 
 > **This project contains no game data.** It does not include, and will never include,
 > a ROM, a BIOS, artwork, audio, or any other copyrighted game content. You must supply
 > your own legally obtained files, dumped from hardware you own.
 
 This is an unofficial, fan-made, non-commercial project. It is not affiliated with,
-endorsed by, or sponsored by any game publisher or console manufacturer. All trademarks
-belong to their respective owners.
+endorsed by, or sponsored by Nintendo, Sony, or any other company. *The Legend of Zelda*,
+*The Minish Cap* and *Game Boy Advance* are trademarks of their respective owners and are
+used here only to say which game this project works with.
 
 ## Status
 
@@ -29,9 +30,9 @@ polish are still being worked on. Expect rough edges.
 ## What you need
 
 - A PS Vita running custom firmware (HENkaku / taiHEN), to install homebrew.
-- Your own dump of the game ROM (a clean, unmodified image, identified by SHA-1
-  `b4bd50e4131b027c334547b4524e2dbbd4227130`).
-- Your own dump of the console BIOS (16 KiB, SHA-1 `300c20df6731a33952ded8c436f7f186d25d3492`).
+- Your own dump of your copy of *The Legend of Zelda: The Minish Cap* (USA) — a clean,
+  unmodified image, identified by SHA-1 `b4bd50e4131b027c334547b4524e2dbbd4227130`.
+- Your own dump of the Game Boy Advance BIOS (16 KiB, SHA-1 `300c20df6731a33952ded8c436f7f186d25d3492`).
 - A Mac or Linux computer with [VitaSDK](https://vitasdk.org/) to build.
 
 The runner refuses to start unless both files match those hashes.
